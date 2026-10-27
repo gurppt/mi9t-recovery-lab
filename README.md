@@ -38,7 +38,7 @@ Les versions Python installées lors du succès sont figées dans `requirements.
 ## Git et sauvegarde
 
 Dépôt : https://github.com/gurppt/mi9t-recovery-lab.
-Le `.gitignore` est prêt pour un dépôt privé. Vérifier les fichiers proposés avant le premier commit. Ne pas forcer l’ajout de `private/` ou `artifacts/`.
+Le dépôt est public. Le `.gitignore` exclut les données propres à l’appareil et les archives binaires. Vérifier les fichiers proposés avant le premier commit. Ne pas forcer l’ajout de `private/` ou `artifacts/`.
 
 Un clone Git ne contiendra ni les 3 Go de firmware ni la sauvegarde originale : sauvegarder séparément ces deux dossiers, avec un stockage privé pour `private/`. Le firmware peut aussi être retéléchargé avec l’URL et les empreintes documentées.
 
