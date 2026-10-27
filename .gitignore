@@ -1,0 +1,12 @@
+# Device-specific data and exact session scripts
+/private/
+# Official images, extracted proprietary binaries and Ghidra database
+/artifacts/
+# Python and editor output
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+.env
+.DS_Store
