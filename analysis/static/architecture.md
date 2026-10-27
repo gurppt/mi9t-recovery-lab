@@ -1,15 +1,35 @@
-# Scope and architecture
+# Architecture du recovery et du transfert USB
 
-Target: stock Xiaomi Mi 9T (davinci_global), MIUI V12.1.4.0.RFJMIXM, Android 11. Official fastboot archive MD5 is 9ce20c36aaef598af2c24c205ac72a79, matching the published archive checksum. Recovery extracted offline, with no device modification. Security patch metadata: 2021-06-01. Bootloader and critical partitions were reported locked by the connected device in prior diagnostics.
+## Périmètre
 
-The privileged recovery accepts physical USB access in MiAssistant mode through ADB CNXN/OPEN/WRTE/OKAY/CLSE framing. An untrusted USB host should not be able to bypass FRP authorization or firmware signature validation. Baseline is AOSP recovery/minadbd; Xiaomi adds proprietary service handlers. ROM validation and FRP authorization must not be conflated.
+Firmware Xiaomi Mi 9T `davinci_global`, build `V12.1.4.0.RFJMIXM`, Android 11. L’image `recovery.img` contient un exécutable ARM64 `recovery`, la bibliothèque `librecovery_ui_ext.so`, un exécutable `adbd` distinct et les fichiers d’initialisation du recovery.
 
-Files: firmware/recovery.img; ramdisk/system/bin/recovery (stripped aarch64 ELF); ramdisk/system/lib64/librecovery_ui_ext.so (exports daemon_service_to_fd and file_sync_service); ramdisk/system/bin/adbd (symbols present); firmware/rawprogram*.xml; ramdisk/prop.default (ro.adb.secure=1, ro.debuggable=0). The recovery and librecovery_ui_ext both contain sync:, format-frp:, getmitoken:, failed_decrypt_error and failed_mitoken_is_NULL strings. Init scripts describe separate recovery and adbd services; exact runtime entrypoint must be verified in binary.
+Le point d’entrée de `recovery` appelle `minadbd_main`. L’analyse concerne ce miniadbd intégré, exposé dans le mode MiAssistant. Les propriétés du daemon ADB Android ordinaire ne suffisent pas à décrire ses droits.
 
-Observed target responses: no initialized MiToken -> failed_mitoken_is_NULL; after getmitoken -> bare format-frp returns failed_decrypt_error. No successful FRP reset. Earlier timeout/empty responses were caused or confounded by the host client's simplistic packet parsing and are not vulnerabilities.
+## Transport
 
-Input surfaces: ADB service names and stream data, sideload upload blocks and signed validation metadata, potential sync protocol filenames and data, local update packages. Privileged sinks include firmware/partition writes, data formatting and reboot. Verify which are reachable before authentication and whether filesystem path checks protect device nodes.
+```text
+Script Python
+  → PyUSB / libusb
+  → interface USB 18d1:4e11
+  → paquets ADB CNXN, OPEN, WRTE, OKAY, CLSE
+  → service sync:
+  → commandes SYNC RECV / SEND / DATA / DONE
+  → accès aux fichiers du recovery et aux périphériques bloc
+```
 
-Public lead: sidel oad-reference (directory named sideload-reference) contains Alephgsm's Windows Bypass.bat and bundled adb.exe. davinci branch does adb pull of persist/modem, patches them, and adb push of an frp file to /dev/block/sda9. Do not execute this script: it changes unrelated partitions and deletes backups. Its README claims support through MIUI12. This is a hypothesis of a separate sync service path, not a confirmed vulnerability on our target.
+Les paquets ADB assurent la connexion et le transport des flux. Le protocole SYNC, encapsulé dans ce flux, porte les opérations de fichiers. Une réponse ADB `OKAY` accuse réception d’un paquet ; le résultat SYNC final et la relecture de la partition apportent des contrôles supplémentaires.
 
-Prior work: no prior audit run. Existing diagnostic notes only. EDL signature reuse discussion explicitly questioned Mi9T compatibility. No target exploit confirmed; scope is firmware analysis, not buying tools or opening hardware. All dynamic device writes are deferred until independently supported and recoverable.
+## Deux chemins de traitement
+
+`service_mi_fd` distribue les noms de services. La commande Xiaomi `format-frp` rejoint un traitement du recovery parent qui vérifie un jeton et une réponse RSA. Le service `sync:` rejoint directement `file_sync_service` dans le chemin examiné, sans appliquer cette vérification de jeton.
+
+La commande `RECV` lit le chemin demandé ; `SEND` ouvre le chemin d’écriture. Les restrictions de taille des messages n’impliquent pas une restriction des chemins aux fichiers ordinaires. L’accès au périphérique bloc FRP a été confirmé par lecture puis écriture.
+
+## Droits et partition
+
+Le processus mesuré par `/proc/self/status` est `recovery`, UID/GID 0. SELinux est permissif. Le nom `frp` de la partition `sda9` a été confirmé par sysfs ; sa lecture complète retourne 524 288 octets.
+
+La table `rawprogram0.xml` de la ROM décrit une partition FRP sur le LUN 0, à partir du secteur 384, avec des secteurs de 4096 octets. Cette table est une référence statique ; le chemin Linux utilisé pour l’écriture a été vérifié indépendamment sur l’appareil.
+
+La validation de signature d’une ROM, le verrouillage du bootloader et l’autorisation d’une commande Xiaomi sont des mécanismes distincts des permissions du service de transfert. L’intervention n’a pas nécessité de modifier ces mécanismes.

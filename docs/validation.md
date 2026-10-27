@@ -1,22 +1,71 @@
-# Validation du 27 octobre 2026
+# Résultats du test matériel
 
-Ce document complète le rapport statique historique, dont les mentions « non testé » décrivent l’état AVANT les essais sur l’appareil.
+Test réalisé le **27 octobre 2026** sur le [profil Mi 9T / V12.1.4.0.RFJMIXM](compatibilite.md).
 
-1. Détection Mi 9T en MiAssistant après résolution d’erreurs physiques de communication USB.
-2. Ouverture de `sync:` et lecture de `/prop.default` : 31 499 octets, SHA256 `09a80cf6f96168e034bdb880f72c633d3883a7746b9e7a2570ef0ac58fb78ce0`.
-3. `/proc/self/status` : Name=recovery, UID/GID=0, CapEff=0000003fffffffff, NoNewPrivs=0, Seccomp=0.
-4. `/sys/fs/selinux/enforce` : `0`.
-5. `/sys/class/block/sda9/uevent` : DEVNAME=sda9, DEVTYPE=partition, PARTN=9, PARTNAME=frp.
-6. Sauvegarde locale de la partition complète, 524 288 octets, droits 0600. Identité et empreinte conservées dans `private/device.json`.
-7. Relecture avant écriture égale à la sauvegarde ; remise à zéro ; relecture complète égale à 524 288 octets nuls.
-8. Retour utilisateur après redémarrage et configuration : « ça marche ».
+## Accès au recovery
 
-La commande propriétaire `format-frp:` avait échoué précédemment avec `failed_mitoken_is_NULL`, puis `failed_decrypt_error`. Aucun jeton valide n’a été obtenu, aucune clé RSA n’a été cassée. Le chemin utilisé avec succès est le transfert de fichiers du recovery.
+L’appareil est détecté en USB sous `18d1:4e11` avec les descripteurs Xiaomi / Mi 9T. L’ouverture du service `sync:` réussit depuis une connexion directe PyUSB.
 
-Les scripts ont été écrits pendant cette session en Python, avec les primitives de paquets de MiAssistantTool. Le batch Windows tiers n’a pas été exécuté : il modifiait également modem/persist, hors de l’intervention nécessaire.
+La lecture de `/prop.default` retourne **31 499 octets**, avec le SHA256 suivant :
 
-## Archivage et reproductibilité
+```text
+09a80cf6f96168e034bdb880f72c633d3883a7746b9e7a2570ef0ac58fb78ce0
+```
 
-`private/original-scripts/` conserve exactement les deux scripts exécutés avec succès, avec leurs paramètres propres au premier appareil. Ne pas les relancer tels quels : leurs anciens chemins de travail sont volontairement conservés comme preuve historique.
+Les propriétés indiquent `V12.1.4.0.RFJMIXM`, Android 11, SDK 30 et le correctif `2021-06-01`.
 
-`scripts/` contient les versions portables : chemins de sauvegarde et identité explicitement passés en arguments, contrôle destructif `--execute`, et vérifications d’empreinte explicites (non supprimées par `python -O`). Le protocole de transfert et le profil de partition restent ceux de la session. Les changements d’interface sont vérifiés hors matériel ; aucune seconde intervention n’a été lancée pour tester l’archivage.
+## Droits effectifs
+
+Lecture de `/proc/self/status` :
+
+```text
+Name:       recovery
+Uid:        0  0  0  0
+Gid:        0  0  0  0
+CapEff:     0000003fffffffff
+NoNewPrivs: 0
+Seccomp:    0
+```
+
+Lecture de `/sys/fs/selinux/enforce` : `0`.
+
+Ces valeurs proviennent du système en cours d’exécution. Elles complètent la configuration trouvée dans l’image du firmware.
+
+## Identification et sauvegarde
+
+Lecture de `/sys/class/block/sda9/uevent` :
+
+```text
+MAJOR=8
+MINOR=9
+DEVNAME=sda9
+DEVTYPE=partition
+PARTN=9
+PARTNAME=frp
+```
+
+La lecture intégrale de `/dev/block/sda9` retourne **524 288 octets**. La sauvegarde est écrite localement avec le mode `0600`, puis utilisée pour une comparaison complète avant écriture. Le numéro de série et le contenu de cette sauvegarde ne sont pas publiés.
+
+## Écriture et résultat
+
+Le transfert écrit 524 288 octets nuls dans la partition identifiée. Le recovery accepte le transfert et la relecture complète correspond exactement au contenu attendu :
+
+```text
+IDENTITY_AND_BACKUP_VERIFIED
+WRITE_ACCEPTED
+VERIFIED_ZEROED_524288_BYTES
+```
+
+Après redémarrage, la configuration Android peut être terminée sans authentification avec l’ancien compte Google. Aucun flash, déverrouillage de bootloader ni modification de modem/persist n’a été nécessaire.
+
+## Chemin non utilisé
+
+La commande Xiaomi `format-frp:` retourne `failed_mitoken_is_NULL` sans jeton initialisé, puis `failed_decrypt_error` sans réponse cryptographique valide. La récupération repose sur le service de transfert `sync:`, pas sur la production d’un jeton accepté par cette commande.
+
+Le batch Windows cité dans l’analyse n’a pas été exécuté. Les opérations ont été limitées à la partition FRP avec les scripts Python.
+
+## Portée de la validation
+
+Le protocole, les lectures, la sauvegarde, l’écriture et la relecture ont été exécutés avec les scripts de test dont les paramètres étaient fixés pour l’appareil. Les scripts publiés utilisent des arguments pour le numéro de série, le chemin de sauvegarde et son empreinte ; ils exigent également `--execute` pour l’écriture.
+
+Cette adaptation a été vérifiée par compilation Python, contrôles de CLI et refus d’exécution sans l’option dédiée. Elle n’a pas été réexécutée en écriture sur un second appareil. Aucun test de coupure pendant transfert ni restauration de sauvegarde n’a été effectué.
